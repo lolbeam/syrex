@@ -1,0 +1,239 @@
+
+local Workspace = game:GetService("Workspace")
+local UserInputService = game:GetService("UserInputService")
+local VirtualUser = game:GetService("VirtualUser")
+local RunService = game:GetService("RunService")
+
+if Syrex.Configuration.Loader.Enabled then 
+    local cam = Workspace.CurrentCamera
+    local x = cam.ViewportSize.X
+    local y = cam.ViewportSize.Y
+    local newx = math.floor(x * 0.5)
+    local newy = math.floor(y * 0.5)
+
+    local SpashScreen = Instance.new("ScreenGui")
+    local Image = Instance.new("ImageLabel")
+    SpashScreen.Name = "SpashScreen"
+    SpashScreen.Parent = game.CoreGui
+    SpashScreen.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+    Image.Name = "Image"
+    Image.Parent = SpashScreen
+    Image.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+    Image.BackgroundTransparency = 1
+    Image.Position = UDim2.new(0, newx, 0, newy)
+    Image.Size = UDim2.new(0, 825, 0, 377)
+    Image.Image = "rbxassetid://18303129479"
+    Image.ImageTransparency = 1
+    Image.AnchorPoint = Vector2.new(0.5, 0.5)
+
+    local Blur = Instance.new("BlurEffect")
+    Blur.Parent = game.Lighting
+    Blur.Size = 0
+    Blur.Name = tostring(math.random(1, 123123))
+
+    local function gui(last, props, t, s)
+        local TI = TweenInfo.new(t or 1, s or Enum.EasingStyle.Sine, Enum.EasingDirection.InOut)
+        local Tweening = game:GetService("TweenService"):Create(last, TI, props)
+        Tweening:Play()
+    end
+
+    gui(Image, {ImageTransparency = 0}, 0.3)
+    gui(Blur, {Size = 20}, 0.3)
+    wait(3)
+    gui(Image, {ImageTransparency = 1}, 0.3)
+    gui(Blur, {Size = 0}, 0.3)
+    wait(0.3)
+    
+    local player = game.Players.LocalPlayer
+    local mouse = player:GetMouse()
+    local camera = game.Workspace.CurrentCamera
+    local target = nil
+    local smoothness = Syrex.Configuration.Smoothness.Enabled and Syrex.Configuration.Smoothness.Value or 1
+    local isLockedOn = false
+    local stopLocking = nil
+    local prediction = Syrex.Configuration.Prediction.Enabled and Syrex.Configuration.Prediction.Value or 0
+    local keybind = Enum.KeyCode[Syrex.Configuration.Keybind.Bind]
+    local triggerBotKeybind = Enum.KeyCode[Syrex.Configuration.TriggerBot.Keybind]
+    local aimPartName = Syrex.Configuration.AimPart.AimPart
+    local triggerBotActive = false
+    local lastTargetPosition = nil
+    local cframeKeybind = Enum.KeyCode[Syrex.Configuration.CFrame.Keybind]
+    local cframeSpeed = Syrex.Configuration.CFrame.Speed
+    local cframeActive = false
+
+    local function isInView(playerCharacter)
+        local aimPart = playerCharacter:FindFirstChild(aimPartName)
+        if not aimPart then return false end
+        local aimPosition = aimPart.Position
+        local screenPoint, onScreen = camera:WorldToViewportPoint(aimPosition)
+        return onScreen and screenPoint.Z > 0
+    end
+
+    local function getClosestPlayerToMouse()
+        local closestPlayer = nil
+        local shortestDistance = math.huge
+        
+        for _, otherPlayer in pairs(game.Players:GetPlayers()) do
+            if otherPlayer ~= player and otherPlayer.Character and otherPlayer.Character:FindFirstChild(aimPartName) and isInView(otherPlayer.Character) then
+                local aimPosition = otherPlayer.Character[aimPartName].Position
+                local screenPoint = camera:WorldToViewportPoint(aimPosition)
+                local distance = (Vector2.new(screenPoint.X, screenPoint.Y) - Vector2.new(mouse.X, mouse.Y)).magnitude
+                
+                if distance < shortestDistance then
+                    shortestDistance = distance
+                    closestPlayer = otherPlayer
+                end
+            end
+        end
+        
+        return closestPlayer
+    end
+
+    local function getTargetPart(character)
+        return character:FindFirstChild(aimPartName)
+    end
+
+    local function smoothLockOn(target)
+        local runService = game:GetService("RunService")
+        
+        local function onRenderStep()
+            if target and target.Character then
+                local targetPart = getTargetPart(target.Character)
+                if targetPart then
+                    local partPosition = targetPart.Position
+                    local velocity = targetPart.Velocity
+                    local predictedPosition = partPosition + (velocity * prediction)
+                    local cameraPosition = camera.CFrame.Position
+                    local direction = (predictedPosition - cameraPosition).unit
+                    local newCFrame = CFrame.new(cameraPosition, cameraPosition + direction)
+                    camera.CFrame = camera.CFrame:Lerp(newCFrame, smoothness)
+                end
+            end
+        end
+        
+        runService:BindToRenderStep("SmoothLockOn", Enum.RenderPriority.Camera.Value, onRenderStep)
+        
+        return function()
+            runService:UnbindFromRenderStep("SmoothLockOn")
+        end
+    end
+
+    local function toggleLockOn()
+        if isLockedOn then
+            if stopLocking then
+                stopLocking()
+            end
+            target = nil
+            isLockedOn = false
+            print("Locking off")
+        else
+            target = getClosestPlayerToMouse()
+            if target then
+                stopLocking = smoothLockOn(target)
+                isLockedOn = true
+                print("Locking on")
+            end
+        end
+    end
+
+    local function onKeyPress(input, gameProcessedEvent)
+        if gameProcessedEvent then return end
+        if input.KeyCode == keybind then
+            toggleLockOn()
+        elseif input.KeyCode == triggerBotKeybind then
+            triggerBotActive = not triggerBotActive
+        elseif input.KeyCode == cframeKeybind then
+            cframeActive = true
+        end
+    end
+
+    local function onKeyRelease(input, gameProcessedEvent)
+        if gameProcessedEvent then return end
+        if input.KeyCode == cframeKeybind then
+            cframeActive = false
+        end
+    end
+
+    game:GetService("UserInputService").InputBegan:Connect(onKeyPress)
+    game:GetService("UserInputService").InputEnded:Connect(onKeyRelease)
+    
+    game:GetService("RunService").RenderStepped:Connect(function()
+        if triggerBotActive then
+            local closestPlayer = getClosestPlayerToMouse()
+            if closestPlayer and closestPlayer.Character then
+                local targetPart = getTargetPart(closestPlayer.Character)
+                if targetPart and isInView(closestPlayer.Character) then
+                    local currentTargetPosition = targetPart.Position
+                    if lastTargetPosition and (currentTargetPosition - lastTargetPosition).magnitude > 0 then
+                        VirtualUser:ClickButton1(Vector2.new(mouse.X, mouse.Y))
+                    end
+                    lastTargetPosition = currentTargetPosition
+                end
+            end
+        end
+    end)
+
+    game:GetService("RunService").RenderStepped:Connect(function()
+        if Syrex.Configuration.KnockCheck.Enabled and isLockedOn and target and target.Character then
+            local humanoid = target.Character:FindFirstChildOfClass("Humanoid")
+            if humanoid and humanoid.Health <= 1 then
+                toggleLockOn()
+            end
+        end
+    end)
+
+    local RunService = game:GetService("RunService")
+
+    local function zeroOutVelocity(hrp)
+        hrp.Velocity = Vector3.new(hrp.Velocity.X, 0, hrp.Velocity.Z)
+        hrp.AssemblyLinearVelocity = Vector3.new(hrp.Velocity.X, 0, hrp.Velocity.Z)
+    end
+
+    local function onPlayerAdded(player)
+        player.CharacterAdded:Connect(function(character)
+            local hrp = character:WaitForChild("HumanoidRootPart")
+            zeroOutVelocity(hrp)
+        end)
+    end
+
+    local function onPlayerRemoving(player)
+        player.CharacterAdded:Disconnect()
+    end
+
+    game.Players.PlayerAdded:Connect(onPlayerAdded)
+    game.Players.PlayerRemoving:Connect(onPlayerRemoving)
+
+    RunService.Heartbeat:Connect(function()
+        pcall(function()
+            for _, player in pairs(game.Players:GetChildren()) do
+                if player.Name ~= game.Players.LocalPlayer.Name then
+                    local hrp = player.Character.HumanoidRootPart
+                    zeroOutVelocity(hrp)
+                end
+            end
+        end)
+    end)
+    
+    game:GetService("RunService").Stepped:Connect(function()
+        if cframeActive then
+            local hrp = player.Character and player.Character:FindFirstChild("HumanoidRootPart")
+            if hrp then
+                local moveDirection = Vector3.new()
+                local speed = cframeSpeed / 16  -- Adjust speed based on user-defined value
+                if UserInputService:IsKeyDown(Enum.KeyCode.W) then
+                    moveDirection = moveDirection + (camera.CFrame.LookVector * speed)
+                end
+                if UserInputService:IsKeyDown(Enum.KeyCode.S) then
+                    moveDirection = moveDirection - (camera.CFrame.LookVector * speed)
+                end
+                if UserInputService:IsKeyDown(Enum.KeyCode.A) then
+                    moveDirection = moveDirection - (camera.CFrame.RightVector * speed)
+                end
+                if UserInputService:IsKeyDown(Enum.KeyCode.D) then
+                    moveDirection = moveDirection + (camera.CFrame.RightVector * speed)
+                end
+                hrp.CFrame = hrp.CFrame + moveDirection
+            end
+        end
+    end)
+end
